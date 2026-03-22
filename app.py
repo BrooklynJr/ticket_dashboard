@@ -4,30 +4,143 @@ import os
 import shutil
 from datetime import datetime
 
+from PIL import Image
+# ============ CSS STYLE ==============
+st.markdown("""
+<style>
+/* background หลัก */
+body {
+    background-color: #f5f7fa;
+}
+
+/* กล่อง AI */
+.ai-box {
+    background-color: #0a8f3c;
+    padding: 20px;
+    border-radius: 12px;
+    color: white;
+}
+
+/* กล่องปกติ */
+.card {
+    background-color: #ffffff;
+    padding: 15px;
+    border-radius: 10px;
+    border: 1px solid #eee;
+    margin-bottom: 10px;
+}
+
+/* SLA Critical */
+.danger {
+    background-color: #d90429;
+    color: white;
+    padding: 10px;
+    border-radius: 8px;
+}
+
+/* Warning */
+.warning {
+    background-color: #ffba08;
+    padding: 10px;
+    border-radius: 8px;
+}
+
+/* Suggestion */
+.success {
+    background-color: #2a9d8f;
+    color: white;
+    padding: 10px;
+    border-radius: 8px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =========== HEADER ==============
+col1, col2 = st.columns([1, 6])
+
+with col1:
+    st.image("assets/ptg_logo.png", width=80)
+
+with col2:
+    st.markdown("""
+    <h2 style='margin-bottom:0;color:#0a8f3c;'>
+    🧠 ระบบวิเคราะห์ Ticket อัตโนมัติ
+    </h2>
+    <p style='margin-top:0;color:gray;'>
+    วิเคราะห์สถานการณ์ • แจ้งเตือน • แนะนำการแก้ไข
+    </p>
+    """, unsafe_allow_html=True)
+
+st.divider()
+
+# ============ END HEADER ==============
+
+st.markdown("""
+<div style="
+    background-color:#0a8f3c;
+    padding:20px;
+    border-radius:12px;
+    color:white;
+    margin-bottom:20px;
+">
+<h3>🧠 AI วิเคราะห์ล่าสุด</h3>
+<p>ระบบประเมินสถานการณ์ Ticket จากข้อมูลล่าสุด</p>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+# LOGO =================
+
 st.set_page_config(page_title="Ticket Dashboard", layout="wide")
 
-st.title("🔥 Ticket Trend Dashboard")
+st.subheader("📊 Ticket Analysis")
 
-# ให้ทีมอัปโหลดไฟล์ใหม่เอง
+# ===== Upload CSV =====
 uploaded_file = st.file_uploader("Upload new ticket CSV", type=["csv"])
 
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+# ===== BEFORE UPLOAD (หน้า Preview) =====
+if uploaded_file is None:
 
-    # backup (optional)
-    archive_dir = "data/archive/"
-    os.makedirs(archive_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    backup_file = os.path.join(archive_dir, f"tickets_{timestamp}.csv")
-    with open(backup_file, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+    st.info("📂 อัปโหลดไฟล์ Ticket (CSV) เพื่อเริ่มวิเคราะห์ข้อมูลอัตโนมัติ")
 
-    st.success("✅ CSV uploaded successfully!")
+    st.markdown("""
+    ### 🔍 ระบบนี้ช่วยอะไรคุณ?
 
-else:
-    st.warning("⚠️ Please upload a CSV file to start")
-    st.stop()
+    - วิเคราะห์ Ticket อัตโนมัติ
+    - แจ้งเตือนความเสี่ยง SLA
+    - สรุปปัญหาที่พบบ่อย
+    - แนะนำแนวทางแก้ไข
+    """)
 
+    st.markdown("""
+    <div class="ai-box">
+    <h3>🧠 ตัวอย่างการวิเคราะห์</h3>
+    <ul>
+    <li>📊 ปริมาณ Ticket เพิ่มขึ้น 25%</li>
+    <li>⚠️ Ticket ระดับ High เพิ่มขึ้น</li>
+    <li>🚨 มี Ticket เกิน SLA</li>
+    <li>💡 แนะนำเพิ่มเจ้าหน้าที่ในช่วงเวลา Peak</li>
+    </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.stop()  # ❗ หยุดตรงนี้ ไม่ให้ code ด้านล่างรัน
+
+# ===== AFTER UPLOAD (Dashboard จริง) =====
+df = pd.read_csv(uploaded_file)
+
+# backup (optional)
+archive_dir = "data/archive/"
+os.makedirs(archive_dir, exist_ok=True)
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+backup_file = os.path.join(archive_dir, f"tickets_{timestamp}.csv")
+
+with open(backup_file, "wb") as f:
+    f.write(uploaded_file.getbuffer())
+
+st.success("✅ CSV uploaded successfully!")
+
+# ===== Clean columns =====
 df.columns = df.columns.str.strip().str.lower()
 
 # ===== Column mapping =====
@@ -47,6 +160,133 @@ df['resolved_date'] = pd.to_datetime(df['resolved_date'], errors='coerce')
 st.write("Columns:", df.columns.tolist())
 st.dataframe(df.head())
 
+# ===== AI INSIGHT PANEL (LAYOUT ใหม่) =====
+
+st.markdown("## 🧠 AI วิเคราะห์สถานการณ์")
+
+# --- เตรียมตัวแปร ---
+total_tickets = len(df)
+high_count = 0
+
+# --- Top issue ---
+top_issue = None
+top_issue_count = 0
+if 'issue' in df.columns and not df['issue'].dropna().empty:
+    top_issue = df['issue'].value_counts().idxmax()
+    top_issue_count = df['issue'].value_counts().max()
+
+# --- High priority ---
+if 'priority' in df.columns:
+    high_count = df[df['priority'].astype(str).str.lower() == 'high'].shape[0]
+
+# --- SLA ---
+over_sla_count = 0
+if 'resolved_date' in df.columns and 'created_date' in df.columns:
+    df_valid = df.dropna(subset=['created_date', 'resolved_date']).copy()
+    if not df_valid.empty:
+        df_valid['resolution_time'] = (
+            df_valid['resolved_date'] - df_valid['created_date']
+        ).dt.total_seconds() / 3600
+        over_sla_count = df_valid[df_valid['resolution_time'] > 4].shape[0]
+
+# =========================
+# 🔴 1. HERO: SLA CRITICAL
+# =========================
+if over_sla_count > 0:
+    st.markdown(f"""
+    <div style="
+        background-color:#d90429;
+        padding:20px;
+        border-radius:12px;
+        color:white;
+        font-size:18px;
+        font-weight:bold;
+        margin-bottom:15px;
+    ">
+    🚨 มี Ticket เกิน SLA จำนวน {over_sla_count} รายการ
+    </div>
+    """, unsafe_allow_html=True)
+
+# =========================
+# ⚠️ 2. WARNING
+# =========================
+if total_tickets > 0 and high_count > total_tickets * 0.3:
+    st.markdown(f"""
+    <div style="
+        background-color:#ffba08;
+        padding:15px;
+        border-radius:10px;
+        margin-bottom:10px;
+    ">
+    ⚠️ Ticket ระดับ High มีจำนวนสูง ({high_count} รายการ)
+    </div>
+    """, unsafe_allow_html=True)
+
+# =========================
+# 📊 3. INFO (2 COLUMN)
+# =========================
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown(f"""
+    <div style="
+        background-color:#ffffff;
+        padding:15px;
+        border-radius:10px;
+        border:1px solid #eee;
+        margin-bottom:10px;
+    ">
+    📊 จำนวน Ticket ทั้งหมด: {total_tickets}
+    </div>
+    """, unsafe_allow_html=True)
+
+    if top_issue:
+        st.markdown(f"""
+        <div style="
+            background-color:#ffffff;
+            padding:15px;
+            border-radius:10px;
+            border:1px solid #eee;
+        ">
+        🔎 ปัญหาที่พบบ่อย: {top_issue} ({top_issue_count})
+        </div>
+        """, unsafe_allow_html=True)
+
+with col2:
+    if 'created_date' in df.columns:
+        df_valid = df.dropna(subset=['created_date']).copy()
+        if not df_valid.empty:
+            df_valid['hour'] = df_valid['created_date'].dt.hour
+            peak_hour = df_valid['hour'].value_counts().idxmax()
+
+            st.markdown(f"""
+            <div style="
+                background-color:#ffffff;
+                padding:15px;
+                border-radius:10px;
+                border:1px solid #eee;
+                margin-bottom:10px;
+            ">
+            ⏰ ช่วงเวลาที่มี Ticket มากที่สุด: {int(peak_hour)}:00 น.
+            </div>
+            """, unsafe_allow_html=True)
+
+# =========================
+# 💡 4. RECOMMENDATION
+# =========================
+if high_count > 5:
+    st.markdown("""
+    <div style="
+        background-color:#2a9d8f;
+        padding:15px;
+        border-radius:10px;
+        color:white;
+        margin-top:10px;
+    ">
+    💡 แนะนำ: ควรเพิ่มเจ้าหน้าที่หรือจัดลำดับงานสำหรับ Ticket ระดับ High
+    </div>
+    """, unsafe_allow_html=True)
+       
 # 👇 
 if 'priority' not in df.columns or 'status' not in df.columns:
     st.error("❌ CSV missing required columns: priority / status")

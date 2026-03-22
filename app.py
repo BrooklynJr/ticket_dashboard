@@ -151,42 +151,106 @@ column_map = {
     'time closed':'resolved_date',
     'priority':'priority',
     'สถานะ':'status',
-    'หมวดหมู่3':'issue'
+    'หมวดหมู่3':'issue',
+    'due date':'due_date'
 }
 existing_map = {k:v for k,v in column_map.items() if k in df.columns}
 df.rename(columns=existing_map, inplace=True)
 df['created_date'] = pd.to_datetime(df['created_date'], errors='coerce')
 df['resolved_date'] = pd.to_datetime(df['resolved_date'], errors='coerce')
+df['due_date'] = pd.to_datetime(df['due_date'], errors='coerce')
 
 st.write("Columns:", df.columns.tolist())
 st.dataframe(df.head())
 
-# ===== Branch Analysis 🔥 =====
-st.subheader("🏢 Branch Analysis")
+# ===== Branch Analysis Advanced (ภาษาไทย) =====
+st.subheader("🏢 วิเคราะห์สาขา (Advanced)")
 
-if 'branch_name' in df.columns:
-    # ใช้ filtered_df ถ้าอยาก filter ตาม priority/status
-    branch_counts = df['branch_name'].value_counts().reset_index()
-    branch_counts.columns = ['Branch', 'Ticket Count']
-    
-    st.write("Top Branches:")
-    st.dataframe(branch_counts.head(10))  # แสดง Top 10
-    
-    # Horizontal Bar Chart ด้วย Plotly
-    fig = px.bar(
-        branch_counts.head(20),  # Top 20 branch
-        x='Ticket Count',
-        y='Branch',
-        orientation='h',
-        text='Ticket Count',
-        labels={'Ticket Count':'Tickets','Branch':'Branch Name'},
-        height=600  # ปรับสูงสุด
-    )
-    fig.update_layout(yaxis={'categoryorder':'total ascending'})  # เรียงจากเยอะไปน้อย
-    st.plotly_chart(fig, use_container_width=True)
-    
+# ===== Mapping ชื่อ column =====
+if 'created' in df.columns:
+    df.rename(columns={'created':'created_date'}, inplace=True)
+if 'due date' in df.columns:
+    df.rename(columns={'due date':'due_date'}, inplace=True)
+if 'time close' in df.columns:        # จาก CSV ดิบ
+    df.rename(columns={'time close':'resolved_date'}, inplace=True)
+if 'queue name' in df.columns:
+    df.rename(columns={'queue name':'queue_name'}, inplace=True)
+if 'branch' in df.columns:            # ถ้า CSV ใช้ 'branch'
+    df.rename(columns={'branch':'branch_name'}, inplace=True)
+
+# ===== แปลง datetime =====
+df['created_date'] = pd.to_datetime(df['created_date'], errors='coerce')
+df['resolved_date'] = pd.to_datetime(df['resolved_date'], errors='coerce')
+df['due_date'] = pd.to_datetime(df['due_date'], errors='coerce')
+
+# ----- ตัวเลือก filter -----
+queue_options = ["ทั้งหมด"]
+if 'queue_name' in df.columns:
+    queue_options += df['queue_name'].dropna().unique().tolist()
+selected_queue = st.selectbox("เลือกคิว", queue_options)
+
+priority_options = ["ทั้งหมด"] + df['priority'].dropna().unique().tolist()
+selected_priority = st.multiselect("เลือกความสำคัญ (Priority)", priority_options, default=["ทั้งหมด"])
+
+status_options = ["ทั้งหมด"] + df['status'].dropna().unique().tolist()
+selected_status = st.multiselect("เลือกสถานะ (Status)", status_options, default=["ทั้งหมด"])
+
+# ----- Apply Filters -----
+df_filtered = df.copy()
+
+if selected_queue != "ทั้งหมด" and 'queue_name' in df.columns:
+    df_filtered = df_filtered[df_filtered['queue_name'] == selected_queue]
+
+if "ทั้งหมด" not in selected_priority:
+    df_filtered = df_filtered[df_filtered['priority'].isin(selected_priority)]
+
+if "ทั้งหมด" not in selected_status:
+    df_filtered = df_filtered[df_filtered['status'].isin(selected_status)]
+
+# ===== SLA Risk per branch =====
+valid_tickets = df_filtered.dropna(subset=['created_date','due_date','resolved_date'])
+
+# คำนวณชั่วโมงเกิน SLA
+valid_tickets['sla_hours'] = (valid_tickets['resolved_date'] - valid_tickets['due_date']).dt.total_seconds()/3600
+
+# filter ticket เกิน SLA
+sla_risk = valid_tickets[valid_tickets['sla_hours'] > 0]
+
+# ===== นับ ticket ต่อ branch =====
+branch_counts = df_filtered['branch_name'].value_counts().reset_index()
+branch_counts.columns = ['สาขา', 'จำนวน ticket']
+
+# % ของ branch
+branch_counts['% ของทั้งหมด'] = (branch_counts['จำนวน ticket'] / branch_counts['จำนวน ticket'].sum() * 100).round(2)
+
+# ===== Merge SLA Risk =====
+branch_sla = sla_risk['branch_name'].value_counts().reset_index()
+branch_sla.columns = ['สาขา','SLA Risk Count']
+
+# ❗ แก้ Type ก่อน merge
+branch_counts['สาขา'] = branch_counts['สาขา'].astype(str)
+branch_sla['สาขา'] = branch_sla['สาขา'].astype(str)
+
+# merge แล้ว fillna 0
+branch_counts = branch_counts.merge(branch_sla, on='สาขา', how='left').fillna(0)
+
+# กำหนดสถานะ SLA
+branch_counts['จำนวน Ticket ที่เกิน SLA'] = branch_counts['SLA Risk Count'].astype(int)
+branch_counts['สถานะ SLA'] = branch_counts['SLA Risk Count'].apply(lambda x: 'SLA เกิน' if x>0 else 'SLA ปกติ')
+
+# แสดงตาราง
+st.dataframe(branch_counts.head(20))
+
+# ===== Peak Hour Calculation =====
+if 'created_date' in df.columns:
+    df_valid = df.dropna(subset=['created_date']).copy()
+    if not df_valid.empty:
+        df_valid['hour'] = df_valid['created_date'].dt.hour
+        peak_hour = df_valid['hour'].value_counts().idxmax()
+    else:
+        peak_hour = None
 else:
-    st.warning("No 'branch_name' column found")
+    peak_hour = None
 
 # ===== AI INSIGHT PANEL (LAYOUT ใหม่) =====
 
@@ -235,9 +299,7 @@ if over_sla_count > 0:
     </div>
     """, unsafe_allow_html=True)
 
-# =========================
-# ⚠️ 2. WARNING
-# =========================
+# ========================= ⚠️ 2. WARNING =========================
 if total_tickets > 0 and high_count > total_tickets * 0.3:
     st.markdown(f"""
     <div style="
@@ -253,12 +315,12 @@ if total_tickets > 0 and high_count > total_tickets * 0.3:
 # =========================
 # 📊 3. INFO (2 COLUMN)
 # =========================
-col1, col2 = st.columns(2)
+col1, col2 = st.columns([1,1])
 
 with col1:
     st.markdown(f"""
     <div style="
-        background-color:#ffffff;
+        background-color:#FFD700;
         padding:15px;
         border-radius:10px;
         border:1px solid #eee;
@@ -266,38 +328,44 @@ with col1:
     ">
     📊 จำนวน Ticket ทั้งหมด: {total_tickets}
     </div>
+    """ , unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div style="
+        background-color:#87CEFA;
+        padding:15px;
+        border-radius:10px;
+        border:1px solid #eee;
+        margin-bottom:10px;
+    ">
+    🔎 ปัญหาที่พบบ่อย: {top_issue} ({top_issue_count})
+    </div>
     """, unsafe_allow_html=True)
 
-    if top_issue:
-        st.markdown(f"""
-        <div style="
-            background-color:#ffffff;
-            padding:15px;
-            border-radius:10px;
-            border:1px solid #eee;
-        ">
-        🔎 ปัญหาที่พบบ่อย: {top_issue} ({top_issue_count})
-        </div>
-        """, unsafe_allow_html=True)
-
 with col2:
-    if 'created_date' in df.columns:
-        df_valid = df.dropna(subset=['created_date']).copy()
-        if not df_valid.empty:
-            df_valid['hour'] = df_valid['created_date'].dt.hour
-            peak_hour = df_valid['hour'].value_counts().idxmax()
+    st.markdown(f"""
+    <div style="
+        background-color:#90EE90;
+        padding:15px;
+        border-radius:10px;
+        border:1px solid #eee;
+        margin-bottom:10px;
+    ">
+    ⏰ ช่วงเวลาที่มี Ticket มากที่สุด: {int(peak_hour)}:00 น.
+    </div>
+    """, unsafe_allow_html=True)
 
-            st.markdown(f"""
-            <div style="
-                background-color:#ffffff;
-                padding:15px;
-                border-radius:10px;
-                border:1px solid #eee;
-                margin-bottom:10px;
-            ">
-            ⏰ ช่วงเวลาที่มี Ticket มากที่สุด: {int(peak_hour)}:00 น.
-            </div>
-            """, unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="
+        background-color:#87CEFA;
+        padding:15px;
+        border-radius:10px;
+        border:1px solid #eee;
+        margin-bottom:10px;
+    ">
+    XXXXXXXXXXXXXXX
+    </div>
+    """, unsafe_allow_html=True)
 
 # =========================
 # 💡 4. RECOMMENDATION
@@ -323,6 +391,7 @@ if 'priority' not in df.columns or 'status' not in df.columns:
 # ===== แปลง datetime ===== ใช้ errors='coerce' → แปลงไม่ได้จะกลายเป็น NaT
 df['created_date'] = pd.to_datetime(df['created_date'], errors='coerce')
 df['resolved_date'] = pd.to_datetime(df['resolved_date'], errors='coerce')
+df['due_date'] = pd.to_datetime(df['due_date'], errors='coerce')
 
 # ===== METRICS =====
 st.subheader("📊 Overview")
@@ -342,11 +411,22 @@ col1, col2 = st.columns(2)
 
 with col1:
     priorities = df['priority'].unique().tolist()
-    selected_priority = st.multiselect("Select Priority", priorities, default=priorities)
+    # เพิ่ม "All" เข้าไปด้านหน้า
+    priorities = ["All"] + priorities
+    # default ให้เป็น "All"
+    selected_priority = st.multiselect("Select Priority", priorities, default=["All"])
 
 with col2:
     statuses = df['status'].unique().tolist()
-    selected_status = st.multiselect("Select Status", statuses, default=statuses)
+    statuses = ["All"] + statuses
+    selected_status = st.multiselect("Select Status", statuses, default=["All"])
+
+# ===== Filter Logic =====
+# ถ้าเลือก "All" ให้ใช้ทุกค่า
+if "All" in selected_priority:
+    selected_priority = df['priority'].unique().tolist()
+if "All" in selected_status:
+    selected_status = df['status'].unique().tolist()
 
 filtered_df = df[
     (df['priority'].isin(selected_priority)) &
@@ -356,7 +436,6 @@ filtered_df = df[
 st.write(f"Showing {len(filtered_df)} tickets after filter")
 filtered_df.index = filtered_df.index + 1  # เพิ่ม 1 ให้เริ่มจาก 1
 st.dataframe(filtered_df)
-
 
 # ===== TICKET TREND =====
 st.subheader("📈 Ticket Trend Over Time")

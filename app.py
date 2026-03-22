@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import shutil
+import plotly.express as px
 from datetime import datetime
 
 from PIL import Image
@@ -159,6 +160,33 @@ df['resolved_date'] = pd.to_datetime(df['resolved_date'], errors='coerce')
 
 st.write("Columns:", df.columns.tolist())
 st.dataframe(df.head())
+
+# ===== Branch Analysis 🔥 =====
+st.subheader("🏢 Branch Analysis")
+
+if 'branch_name' in df.columns:
+    # ใช้ filtered_df ถ้าอยาก filter ตาม priority/status
+    branch_counts = df['branch_name'].value_counts().reset_index()
+    branch_counts.columns = ['Branch', 'Ticket Count']
+    
+    st.write("Top Branches:")
+    st.dataframe(branch_counts.head(10))  # แสดง Top 10
+    
+    # Horizontal Bar Chart ด้วย Plotly
+    fig = px.bar(
+        branch_counts.head(20),  # Top 20 branch
+        x='Ticket Count',
+        y='Branch',
+        orientation='h',
+        text='Ticket Count',
+        labels={'Ticket Count':'Tickets','Branch':'Branch Name'},
+        height=600  # ปรับสูงสุด
+    )
+    fig.update_layout(yaxis={'categoryorder':'total ascending'})  # เรียงจากเยอะไปน้อย
+    st.plotly_chart(fig, use_container_width=True)
+    
+else:
+    st.warning("No 'branch_name' column found")
 
 # ===== AI INSIGHT PANEL (LAYOUT ใหม่) =====
 

@@ -6,58 +6,31 @@ from datetime import datetime
 
 st.set_page_config(page_title="Ticket Dashboard", layout="wide")
 
-
-# ===== LOAD DATA =====
-@st.cache_data
-def load_data():
-    df = pd.read_csv(
-        "data/tickets.csv",
-        sep=None,
-        engine='python',
-        on_bad_lines='skip',
-        encoding_errors='ignore'
-    )
-
-    df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
-
-    # detect created column
-    created_col = None
-    for col in df.columns:
-        if "create" in col or "open" in col:
-            created_col = col
-
-    if created_col:
-        df[created_col] = pd.to_datetime(df[created_col], errors='coerce')
-        df['hour'] = df[created_col].dt.hour
-        df = df.dropna(subset=['hour'])
-        df['hour'] = df['hour'].astype(int)
-
-    return df
-
-
-df = load_data()
-
 st.title("🔥 Ticket Trend Dashboard")
 
 # ให้ทีมอัปโหลดไฟล์ใหม่เอง
 uploaded_file = st.file_uploader("Upload new ticket CSV", type=["csv"])
-if uploaded_file:
+
+if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
 
-    # ===== Save backup only ตอน upload =====
+    # backup (optional)
     archive_dir = "data/archive/"
     os.makedirs(archive_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     backup_file = os.path.join(archive_dir, f"tickets_{timestamp}.csv")
     with open(backup_file, "wb") as f:
         f.write(uploaded_file.getbuffer())
-    st.success(f"✅ CSV uploaded: {backup_file}")
+
+    st.success("✅ CSV uploaded successfully!")
 
 else:
-    df = pd.read_csv("data/tickets.csv")
+    st.warning("⚠️ Please upload a CSV file to start")
+    st.stop()
+
+df.columns = df.columns.str.strip().str.lower()
 
 # ===== Column mapping =====
-df.columns = df.columns.str.strip().str.lower()
 column_map = {
     'id':'ticket_id',
     'created':'created_date',
@@ -74,27 +47,14 @@ df['resolved_date'] = pd.to_datetime(df['resolved_date'], errors='coerce')
 st.write("Columns:", df.columns.tolist())
 st.dataframe(df.head())
 
-# ===== Example Selectbox =====
-priority_filter = st.selectbox("Select Priority", options=["All"] + df['priority'].dropna().unique().tolist())
-status_filter = st.selectbox("Select Status", options=["All"] + df['status'].dropna().unique().tolist())
-
-st.write("Priority selected:", priority_filter)
-st.write("Status selected:", status_filter)
+# 👇 
+if 'priority' not in df.columns or 'status' not in df.columns:
+    st.error("❌ CSV missing required columns: priority / status")
+    st.stop()
 
 # ===== แปลง datetime ===== ใช้ errors='coerce' → แปลงไม่ได้จะกลายเป็น NaT
 df['created_date'] = pd.to_datetime(df['created_date'], errors='coerce')
 df['resolved_date'] = pd.to_datetime(df['resolved_date'], errors='coerce')
-
-
-if uploaded_file:
-    # เก็บไฟล์ backup
-    archive_dir = "data/archive/"
-    os.makedirs(archive_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    backup_file = os.path.join(archive_dir, f"tickets_{timestamp}.csv")
-    with open(backup_file, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-
 
 # ===== METRICS =====
 st.subheader("📊 Overview")
